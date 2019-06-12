@@ -2,6 +2,7 @@
 #include <QKeyEvent>
 #include <QBoxLayout>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QPainter>
 #include <QStyle>
@@ -59,16 +60,19 @@ void App::init() {
 	indexLbl->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
 	ctrlLayout->addWidget(indexLbl);
 	// Prev and next images
-	QHBoxLayout* prevNextLayout = new QHBoxLayout;
+	QGridLayout* prevNextLayout = new QGridLayout;
 	ctrlLayout->addLayout(prevNextLayout);
 	prevBtn = new QPushButton("<-  Prev", this);
-	prevNextLayout->addWidget(prevBtn);
+	prevNextLayout->addWidget(prevBtn, 0, 0);
 	nextBtn = new QPushButton("Next  ->", this);
-	prevNextLayout->addWidget(nextBtn);
+	prevNextLayout->addWidget(nextBtn, 0, 1);
 	// Skip invalid facades
 	skipInvalidCB = new QCheckBox("Skip invalid", this);
 	skipInvalidCB->setChecked(true);
-	ctrlLayout->addWidget(skipInvalidCB);
+	prevNextLayout->addWidget(skipInvalidCB, 1, 0);
+	// Save facade grammar
+	saveBtn = new QPushButton("Save", this);
+	prevNextLayout->addWidget(saveBtn, 1, 1);
 
 	// Parameter widgets
 	QGroupBox* paramsGroup = new QGroupBox("Params", this);
@@ -220,6 +224,7 @@ void App::init() {
 	connect(prevBtn, &QPushButton::clicked, this, &App::prevFacade);
 	connect(nextBtn, &QPushButton::clicked, this, &App::nextFacade);
 	connect(skipInvalidCB, &QCheckBox::toggled, this, &App::updateIndexLabel);
+	connect(saveBtn, &QPushButton::clicked, this, &App::saveFacade);
 
 	connect(rowsSpin, qOverload<int>(&QSpinBox::valueChanged), this, &App::updateGrammar);
 	connect(colsSpin, qOverload<int>(&QSpinBox::valueChanged), this, &App::updateGrammar);
@@ -358,6 +363,9 @@ void App::readDir(QString path) {
 				// Skip if it's a roof
 				if (metaJson["roof"]) continue;
 
+				// Skip if size is null
+				if (metaJson["size"][0].is_null() || metaJson["size"][1].is_null()) continue;
+
 				// Add facade to list
 				FacadeInfo finfo;
 				finfo.metaPath = metaPath;
@@ -365,6 +373,15 @@ void App::readDir(QString path) {
 				finfo.imagePath = imagePath;
 				finfo.valid = valid;
 				finfo.skipIdx = skipIdx;
+				finfo.size_x = metaJson["size"][0];
+				finfo.size_y = metaJson["size"][1];
+				if (valid) {
+					finfo.chip_size_x = metaJson["chip_size"][0];
+					finfo.chip_size_y = metaJson["chip_size"][1];
+				} else {
+					finfo.chip_size_x = finfo.size_x;
+					finfo.chip_size_y = finfo.size_y;
+				}
 				facadeInfo.push_back(finfo);
 
 				if (valid) {
@@ -378,12 +395,17 @@ void App::readDir(QString path) {
 	if (facadeInfo.empty()) return;
 
 	// Load the first facade
-	facadeIdx = facadeInfo.size() - 1;
-	nextFacade();
+	facadeIdx = 0;
+	while (skipInvalidCB->isChecked() && !facadeInfo[facadeIdx].valid)
+		facadeIdx = (facadeIdx + 1) % facadeInfo.size();
+	updateIndexLabel();
+	loadFacade();
 }
 
 void App::nextFacade() {
 	if (facadeInfo.empty()) return;
+
+	saveFacade();
 
 	// Get the next facade that is valid (if skipping invalid ones)
 	facadeIdx = (facadeIdx + 1) % facadeInfo.size();
@@ -398,6 +420,8 @@ void App::nextFacade() {
 void App::prevFacade() {
 	if (facadeInfo.empty()) return;
 
+	saveFacade();
+
 	// Get the previous facade that is valid (if skipping invalid ones)
 	facadeIdx = (facadeIdx - 1 + facadeInfo.size()) % facadeInfo.size();
 	while (skipInvalidCB->isChecked() && !facadeInfo[facadeIdx].valid)
@@ -408,6 +432,99 @@ void App::prevFacade() {
 	loadFacade();
 }
 
+// Write ground truth parameters
+void App::saveFacade() {
+	if (facadeInfo.empty()) return;
+
+	json truthJson;
+	// Write display grammar params
+	int grammar = grammarLbl->text().toInt();
+	truthJson["dispParams"]["grammar"] = grammar;
+	truthJson["dispParams"]["rows"] = rowsSpin->value();
+	truthJson["dispParams"]["cols"] = colsSpin->value();
+	truthJson["dispParams"]["relWidth"] = relWSpin->value();
+	truthJson["dispParams"]["relHeight"] = relHSpin->value();
+	truthJson["dispParams"]["doors"] = doorsSpin->value();
+	truthJson["dispParams"]["relDWidth"] = relDWSpin->value();
+	truthJson["dispParams"]["relDHeight"] = relDHSpin->value();
+
+	// Write display variables
+	truthJson["disp"]["x1"] = x1Spin->value();
+	truthJson["disp"]["y1"] = y1Spin->value();
+	truthJson["disp"]["x2"] = x2Spin->value();
+	truthJson["disp"]["y2"] = y2Spin->value();
+	truthJson["disp"]["rotate"] = rotateSlider->value();
+	truthJson["disp"]["shear"] = shearSlider->value();
+
+	// Write params relative to chip-size
+	double rect_width_px = qAbs(x2Spin->value() - x1Spin->value()) + 1;
+	double rect_height_px = qAbs(y2Spin->value() - y1Spin->value()) + 1;
+	double image_width_px = overlay->imageRect().width();
+	double image_height_px = overlay->imageRect().height();
+	double image_width_m = facadeInfo[facadeIdx].size_x;
+	double image_height_m = facadeInfo[facadeIdx].size_y;
+	double chip_width_m = facadeInfo[facadeIdx].chip_size_x;
+	double chip_height_m = facadeInfo[facadeIdx].chip_size_y;
+	truthJson["params"]["valid"] = (grammar != 0);
+	truthJson["params"]["grammar"] = grammar;
+
+	// Write zeros for all params if invalid grammar
+	if (grammar == 0) {
+		truthJson["params"]["rows"] = 0;
+		truthJson["params"]["cols"] = 0;
+		truthJson["params"]["relativeWidth"] = 0.0;
+		truthJson["params"]["relativeHeight"] = 0.0;
+		truthJson["params"]["doors"] = 0;
+		truthJson["params"]["relativeDWidth"] = 0.0;
+		truthJson["params"]["relativeDHeight"] = 0.0;
+	} else {
+		// If grid grammar, write rows cols relative to metadata chip size
+		if (grammar == 1 || grammar == 2) {
+			truthJson["params"]["rows"] = rowsSpin->value() / rect_height_px
+				* image_height_px / image_height_m * chip_height_m;
+			truthJson["params"]["cols"] = colsSpin->value() / rect_width_px
+				* image_width_px / image_width_m * chip_width_m;
+		// If vertical windows, write 1 row
+		} else if (grammar == 3 || grammar == 4) {
+			truthJson["params"]["rows"] = 1;
+			truthJson["params"]["cols"] = colsSpin->value() / rect_width_px
+				* image_width_px / image_width_m * chip_width_m;
+		// If horizontal windows, write 1 column
+		} else if (grammar == 5 || grammar == 6) {
+			truthJson["params"]["rows"] = rowsSpin->value() / rect_height_px
+				* image_height_px / image_height_m * chip_height_m;
+			truthJson["params"]["cols"] = 1;
+		}
+		truthJson["params"]["relativeWidth"] = relWSpin->value();
+		truthJson["params"]["relativeHeight"] = relHSpin->value();
+
+		// If there are doors, write door params (relative to chip size)
+		if (grammar == 2 || grammar == 4 || grammar == 6) {
+			truthJson["params"]["doors"] = doorsSpin->value() / rect_width_px
+				* image_width_px / image_width_m * chip_width_m;
+			truthJson["params"]["relativeDWidth"] = relDWSpin->value();
+			truthJson["params"]["relativeDHeight"] = relDHSpin->value() * rect_height_px
+				* image_height_m / image_height_px / chip_height_m;
+		// No doors, write zeros for door params
+		} else {
+			truthJson["params"]["doors"] = 0;
+			truthJson["params"]["relativeDWidth"] = 0.0;
+			truthJson["params"]["relativeDHeight"] = 0.0;
+		}
+	}
+
+	// Create ground truth directory if it doesn't exist
+	fs::path truthPath = facadeInfo[facadeIdx].truthPath;
+	fs::path truthDir = truthPath.parent_path();
+	if (!fs::exists(truthDir))
+		fs::create_directory(truthDir);
+
+	// Write output json
+	std::ofstream truthFile(truthPath);
+	truthFile << std::setw(4) << truthJson;
+}
+
+// Load facade image and ground truth params if they exist
 void App::loadFacade() {
 	QString imagename = QString::fromStdString(facadeInfo[facadeIdx].imagePath.string());
 
@@ -436,6 +553,29 @@ void App::loadFacade() {
 
 	rotateSlider->setValue(0);
 	shearSlider->setValue(0);
+
+	// Load ground truth data if it exists
+	fs::path truthPath = facadeInfo[facadeIdx].truthPath;
+	if (!fs::exists(truthPath)) return;
+
+	std::ifstream truthFile(truthPath);
+	json truthJson;
+	truthFile >> truthJson;
+
+	rowsSpin->setValue(truthJson["dispParams"]["rows"]);
+	colsSpin->setValue(truthJson["dispParams"]["cols"]);
+	relWSpin->setValue(truthJson["dispParams"]["relWidth"]);
+	relHSpin->setValue(truthJson["dispParams"]["relHeight"]);
+	doorsSpin->setValue(truthJson["dispParams"]["doors"]);
+	relDWSpin->setValue(truthJson["dispParams"]["relDWidth"]);
+	relDHSpin->setValue(truthJson["dispParams"]["relDHeight"]);
+
+	x1Spin->setValue(truthJson["disp"]["x1"]);
+	y1Spin->setValue(truthJson["disp"]["y1"]);
+	x2Spin->setValue(truthJson["disp"]["x2"]);
+	y2Spin->setValue(truthJson["disp"]["y2"]);
+	rotateSlider->setValue(truthJson["disp"]["rotate"]);
+	shearSlider->setValue(truthJson["disp"]["shear"]);
 }
 
 // Update the grammar label with the current grammar

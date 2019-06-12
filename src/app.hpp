@@ -24,6 +24,10 @@ struct FacadeInfo {
 	fs::path imagePath;		// Path to image
 	bool valid;				// Whether grammar is valid
 	int skipIdx;			// Index of valid-only facades
+	double size_x;			// Size of full facade in meters
+	double size_y;
+	double chip_size_x;		// Size of DN-crop in meters (from metadata)
+	double chip_size_y;
 };
 
 class App : public QWidget {
@@ -47,6 +51,7 @@ private:
 	QLabel* indexLbl;
 	QPushButton* prevBtn;
 	QPushButton* nextBtn;
+	QPushButton* saveBtn;
 	QCheckBox* skipInvalidCB;
 
 	// Parameter widgets
@@ -78,6 +83,7 @@ private:
 	void readDir(QString path);
 	void nextFacade();
 	void prevFacade();
+	void saveFacade();
 	void loadFacade();
 	void updateGrammar();
 	void updateIndexLabel();
