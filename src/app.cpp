@@ -3,11 +3,17 @@
 #include <QBoxLayout>
 #include <QFormLayout>
 #include <QGroupBox>
-#include <QToolButton>
 #include <QPainter>
 #include <QStyle>
+#include <QFileDialog>
+#include <QDebug>
+#include <fstream>
+#include <iomanip>
 #include "app.hpp"
 #include "imageoverlay.hpp"
+#include "json.hpp"
+
+using json = nlohmann::json;
 
 App::App(QWidget* parent) : QWidget(parent) {
 	init();
@@ -19,12 +25,6 @@ void App::keyReleaseEvent(QKeyEvent* e) {
 	switch (e->key()) {
 	case Qt::Key_Escape:
 		QApplication::quit();
-		break;
-	case Qt::Key_Left:
-		if (i++ % 2)
-			loadFacade("0092.png");
-		else
-			loadFacade("0021.png");
 		break;
 	default:
 		QWidget::keyReleaseEvent(e);
@@ -43,6 +43,32 @@ void App::init() {
 	topLayout->addWidget(ctrlWidget);
 	QVBoxLayout* ctrlLayout = new QVBoxLayout;
 	ctrlWidget->setLayout(ctrlLayout);
+
+	// Directory of images to look thru
+	QLabel* dirLbl = new QLabel("Directory:", this);
+	ctrlLayout->addWidget(dirLbl);
+	QHBoxLayout* dirLayout = new QHBoxLayout;
+	ctrlLayout->addLayout(dirLayout);
+	dirLE = new QLineEdit(this);
+	dirLayout->addWidget(dirLE);
+	dirBtn = new QToolButton(this);
+	dirBtn->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
+	dirLayout->addWidget(dirBtn);
+	// Index label
+	indexLbl = new QLabel("0 / 0", this);
+	indexLbl->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+	ctrlLayout->addWidget(indexLbl);
+	// Prev and next images
+	QHBoxLayout* prevNextLayout = new QHBoxLayout;
+	ctrlLayout->addLayout(prevNextLayout);
+	prevBtn = new QPushButton("<-  Prev", this);
+	prevNextLayout->addWidget(prevBtn);
+	nextBtn = new QPushButton("Next  ->", this);
+	prevNextLayout->addWidget(nextBtn);
+	// Skip invalid facades
+	skipInvalidCB = new QCheckBox("Skip invalid", this);
+	skipInvalidCB->setChecked(true);
+	ctrlLayout->addWidget(skipInvalidCB);
 
 	// Parameter widgets
 	QGroupBox* paramsGroup = new QGroupBox("Params", this);
@@ -107,6 +133,11 @@ void App::init() {
 	visibleCB = new QCheckBox("Visible", this);
 	visibleCB->setChecked(true);
 	dispLayout->addRow(visibleCB);
+	// Transparency
+	transparencySlider = new QSlider(Qt::Horizontal, this);
+	transparencySlider->setRange(0, 255);
+	transparencySlider->setValue(128);
+	dispLayout->addRow("Transparency", transparencySlider);
 	// Brightness
 	brightnessSlider = new QSlider(Qt::Horizontal, this);
 	brightnessSlider->setRange(0, 255);
@@ -116,25 +147,21 @@ void App::init() {
 	x1Spin = new QSpinBox(this);
 	x1Spin->setRange(0, 100);
 	x1Spin->setValue(0);
-	x1Spin->setSingleStep(5);
 	dispLayout->addRow("X1", x1Spin);
 	// y1
 	y1Spin = new QSpinBox(this);
 	y1Spin->setRange(0, 100);
 	y1Spin->setValue(0);
-	y1Spin->setSingleStep(5);
 	dispLayout->addRow("Y1", y1Spin);
 	// x2
 	x2Spin = new QSpinBox(this);
 	x2Spin->setRange(0, 100);
-	x2Spin->setValue(100);
-	x2Spin->setSingleStep(5);
+	x2Spin->setValue(0);
 	dispLayout->addRow("X2", x2Spin);
 	// y2
 	y2Spin = new QSpinBox(this);
 	y2Spin->setRange(0, 100);
-	y2Spin->setValue(100);
-	y2Spin->setSingleStep(5);
+	y2Spin->setValue(0);
 	dispLayout->addRow("Y2", y2Spin);
 	// Rotate
 	rotateSlider = new QSlider(Qt::Horizontal, this);
@@ -159,12 +186,41 @@ void App::init() {
 
 	ctrlLayout->addStretch();
 
-
 	// Image and overlay view
 	overlay = new ImageOverlay(this);
 	topLayout->addWidget(overlay);
 
+
+
+
 	// Connect signals and slots
+	connect(dirLE, &QLineEdit::editingFinished, [=]() {
+		// Do nothing if text was not modified
+		if (!dirLE->isModified()) return;
+		dirLE->setModified(false);
+
+		// Attempt to read the directory
+		readDir(dirLE->text());
+	});
+	connect(dirBtn, &QToolButton::clicked, [=]() {
+		// Select an existing directory
+		QString dirname = QFileDialog::getExistingDirectory(this,
+			"Select directory", "",
+			QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+		// Do nothing if user cancelled
+		if (dirname.isNull()) return;
+
+		// Set the lineEdit text
+		dirLE->setText(dirname);
+
+		// Attempt to read the directory
+		readDir(dirname);
+	});
+
+	connect(prevBtn, &QPushButton::clicked, this, &App::prevFacade);
+	connect(nextBtn, &QPushButton::clicked, this, &App::nextFacade);
+	connect(skipInvalidCB, &QCheckBox::toggled, this, &App::updateIndexLabel);
+
 	connect(rowsSpin, qOverload<int>(&QSpinBox::valueChanged), this, &App::updateGrammar);
 	connect(colsSpin, qOverload<int>(&QSpinBox::valueChanged), this, &App::updateGrammar);
 	connect(doorsSpin, qOverload<int>(&QSpinBox::valueChanged), this, &App::updateGrammar);
@@ -190,6 +246,7 @@ void App::init() {
 	connect(relDHSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), updateFacade);
 
 	connect(visibleCB, &QCheckBox::toggled, overlay, &ImageOverlay::setOverlayVisible);
+	connect(transparencySlider, &QSlider::valueChanged, overlay, &ImageOverlay::setTransparency);
 	connect(brightnessSlider, &QSlider::valueChanged, overlay, &ImageOverlay::setBrightness);
 
 	// Update display rectangle
@@ -216,7 +273,144 @@ void App::init() {
 	connect(shearReset, &QToolButton::clicked, [=]() { shearSlider->setValue(0); });
 }
 
-void App::loadFacade(QString imagename) {
+void App::clear() {
+	topDir = fs::path();
+	facadeInfo.clear();
+	facadeIdx = 0;
+	skipTotal = 0;
+
+	updateIndexLabel();
+
+	// Reset grammar params
+	rowsSpin->setValue(0);
+	colsSpin->setValue(0);
+	relWSpin->setValue(0.5);
+	relHSpin->setValue(0.5);
+	doorsSpin->setValue(0);
+	relDWSpin->setValue(0.5);
+	relDHSpin->setValue(0.2);
+
+	// Reset control settings
+	x1Spin->setRange(0, 0);
+	y1Spin->setRange(0, 0);
+	x2Spin->setRange(0, 0);
+	y2Spin->setRange(0, 0);
+	x1Spin->setValue(0);
+	y1Spin->setValue(0);
+	x2Spin->setValue(0);
+	y2Spin->setValue(0);
+
+	rotateSlider->setValue(0);
+	shearSlider->setValue(0);
+
+	overlay->clear();
+}
+
+void App::readDir(QString path) {
+	fs::path dirDir(path.toStdString());
+
+	// Do nothing if the directory does not exist
+	if (!fs::exists(dirDir)) return;
+	// Do nothing if it's the same directory we're already using
+	if (fs::equivalent(dirDir, topDir)) return;
+
+	// Clear any current state
+	clear();
+
+	// Set the top-level directory to use and clear any existing facades
+	topDir = dirDir;
+	int skipIdx = 0;
+
+	// Find all subdirectories named "metadata"
+	fs::recursive_directory_iterator di(topDir), dend;
+	for (; di != dend; ++di) {
+		if (!fs::is_directory(di->path())) continue;
+		if (di->path().filename().string() == "metadata") {
+			di.disable_recursion_pending();
+
+			fs::path metaDir = di->path();
+			qDebug() << metaDir.string().c_str();
+
+			// Iterate over all metadata files in this directory
+			fs::directory_iterator ji(metaDir), jend;
+			for (; ji != jend; ++ji) {
+				// Skip if not a file or doesn't end in .json
+				if (!fs::is_regular_file(ji->path())) continue;
+				if (ji->path().extension().string() != ".json") continue;
+
+				// Get path to corresponding image
+				fs::path metaPath = ji->path();
+				fs::path imagePath = metaDir.parent_path() / "image" / metaPath.filename();
+				imagePath.replace_extension(".png");
+
+				// Skip if image file doesn't exist
+				if (!fs::exists(imagePath)) continue;
+
+				// Get path to ground truth file
+				fs::path truthPath = metaDir.parent_path() / "truth" / metaPath.filename();
+
+				// Read whether facade has a valid grammar
+				std::ifstream metaFile(metaPath);
+				json metaJson;
+				metaFile >> metaJson;
+				bool valid = metaJson["valid"];
+
+				// Skip if it's a roof
+				if (metaJson["roof"]) continue;
+
+				// Add facade to list
+				FacadeInfo finfo;
+				finfo.metaPath = metaPath;
+				finfo.truthPath = truthPath;
+				finfo.imagePath = imagePath;
+				finfo.valid = valid;
+				finfo.skipIdx = skipIdx;
+				facadeInfo.push_back(finfo);
+
+				if (valid) {
+					skipIdx++;
+					skipTotal++;
+				}
+			}
+		}
+	}
+
+	if (facadeInfo.empty()) return;
+
+	// Load the first facade
+	facadeIdx = facadeInfo.size() - 1;
+	nextFacade();
+}
+
+void App::nextFacade() {
+	if (facadeInfo.empty()) return;
+
+	// Get the next facade that is valid (if skipping invalid ones)
+	facadeIdx = (facadeIdx + 1) % facadeInfo.size();
+	while (skipInvalidCB->isChecked() && !facadeInfo[facadeIdx].valid)
+		facadeIdx = (facadeIdx + 1) % facadeInfo.size();
+
+	updateIndexLabel();
+
+	loadFacade();
+}
+
+void App::prevFacade() {
+	if (facadeInfo.empty()) return;
+
+	// Get the previous facade that is valid (if skipping invalid ones)
+	facadeIdx = (facadeIdx - 1 + facadeInfo.size()) % facadeInfo.size();
+	while (skipInvalidCB->isChecked() && !facadeInfo[facadeIdx].valid)
+		facadeIdx = (facadeIdx - 1 + facadeInfo.size()) % facadeInfo.size();
+
+	updateIndexLabel();
+
+	loadFacade();
+}
+
+void App::loadFacade() {
+	QString imagename = QString::fromStdString(facadeInfo[facadeIdx].imagePath.string());
+
 	overlay->openImage(imagename);
 	QRect rect = overlay->imageRect();
 
@@ -270,4 +464,19 @@ void App::updateGrammar() {
 
 	else if (doors >= 1)
 		grammarLbl->setText("2");
+}
+
+// Update the index display label
+void App::updateIndexLabel() {
+	if (facadeInfo.empty()) {
+		indexLbl->setText("0 / 0");
+		return;
+	}
+
+	if (skipInvalidCB->isChecked())
+		indexLbl->setText(QString::number(facadeInfo[facadeIdx].skipIdx) + " / "
+			+ QString::number(skipTotal));
+	else
+		indexLbl->setText(QString::number(facadeIdx) + " / "
+			+ QString::number(facadeInfo.size()));
 }

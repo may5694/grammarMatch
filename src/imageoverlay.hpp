@@ -30,8 +30,10 @@ public:
 	QRect imageRect() const { return pixmap.rect(); }
 
 public slots:
+	void clear();
 	void openImage(QString imagename);
 	void setOverlayVisible(bool visible);
+	void setTransparency(int transparency);
 	void setBrightness(int brightness);
 	void setDispRect(QRect dispRect);
 	void setRotation(double rotation);
@@ -44,6 +46,7 @@ protected:
 private:
 	QPixmap pixmap;			// Facade image
 	bool m_ovisible;		// Whether overlay is visible
+	int m_transparency;		// Transparency of windows
 	int m_brightness;		// Brightness of windows
 	QRect m_dispRect;		// Display rectangle
 	double m_rotation;		// Rotation in degrees

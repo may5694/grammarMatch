@@ -4,6 +4,7 @@
 ImageOverlay::ImageOverlay(QWidget* parent) : QWidget(parent) {
 	setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::MinimumExpanding);
 	m_ovisible = true;
+	m_transparency = 128;
 	m_brightness = 128;
 	m_rotation = 0.0;
 	m_shear = 0.0;
@@ -16,12 +17,16 @@ QSize ImageOverlay::minimumSizeHint() const {
 
 QSize ImageOverlay::sizeHint() const {
 	// It's possible to draw outside of image, so we should see that if we can
-	int maxDim = qMax(pixmap.width(), pixmap.height());
-	return QSize(maxDim * 1.5, maxDim * 1.5);
+	int maxDim = qMax(pixmap.width(), pixmap.height()) * 1.5;
+	return QSize(qMax(maxDim, 600), qMax(maxDim, 400));
 }
 
 void ImageOverlay::setOverlayVisible(bool visible) {
 	m_ovisible = visible;
+	update();
+}
+void ImageOverlay::setTransparency(int transparency) {
+	m_transparency = qMin(qMax(transparency, 0), 255);
 	update();
 }
 void ImageOverlay::setBrightness(int brightness) {
@@ -45,6 +50,12 @@ void ImageOverlay::setParams(Params params) {
 	update();
 }
 
+// Clear any existing image
+void ImageOverlay::clear() {
+	pixmap = QPixmap();
+	// Nothing else will be drawn so it doesn't matter
+}
+
 // Open the specified image file
 void ImageOverlay::openImage(QString imagename) {
 	pixmap = QPixmap(imagename);
@@ -55,7 +66,11 @@ void ImageOverlay::openImage(QString imagename) {
 }
 
 void ImageOverlay::paintEvent(QPaintEvent* event) {
+	// Draw nothing if we don't have a valid pixmap
+	if (pixmap.isNull()) return;
+
 	QPainter painter(this);
+	painter.setRenderHint(QPainter::Antialiasing);
 
 	// Set origin to image top-left
 	painter.translate(
@@ -90,7 +105,8 @@ void ImageOverlay::paintEvent(QPaintEvent* event) {
 	// Skip if invalid grammar
 	if (m_params.rows <= 0 || m_params.cols <= 0) return;
 
-	QColor winColor(m_brightness, m_brightness, m_brightness);
+	QColor winColor(m_brightness, m_brightness, m_brightness, m_transparency);
+	painter.setBrush(QBrush(winColor));
 
 	// Draw doors
 	if (m_params.doors > 0) {
@@ -103,8 +119,8 @@ void ImageOverlay::paintEvent(QPaintEvent* event) {
 			painter.translate((double)d / m_params.doors, 0.0);
 			painter.scale(1.0 / m_params.doors, 1.0);
 
-			painter.fillRect(QRectF((1.0 - m_params.relDWidth) / 2.0, 0.0,
-				m_params.relDWidth, 1.0), winColor);
+			QRectF doorRect((1.0 - m_params.relDWidth) / 2.0, 0.0, m_params.relDWidth, 1.0);
+			painter.drawRect(doorRect);
 
 			painter.restore();
 		}
@@ -124,10 +140,11 @@ void ImageOverlay::paintEvent(QPaintEvent* event) {
 			painter.translate((double)c / m_params.cols, 0.0);
 			painter.scale(1.0 / m_params.cols, 1.0);
 
-			painter.fillRect(QRectF(
+			QRectF winRect(
 				(1.0 - m_params.relWidth) / 2.0,
 				(1.0 - m_params.relHeight) / 2.0,
-				m_params.relWidth, m_params.relHeight), winColor);
+				m_params.relWidth, m_params.relHeight);
+			painter.drawRect(winRect);
 
 			painter.restore();
 		}
