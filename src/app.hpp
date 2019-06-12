@@ -72,8 +72,8 @@ private:
 	QSpinBox* y1Spin;
 	QSpinBox* x2Spin;
 	QSpinBox* y2Spin;
-	QSlider* rotateSlider;
-	QSlider* shearSlider;
+	QDoubleSpinBox* rotateSpin;
+	QDoubleSpinBox* shearSpin;
 
 	// Image and overlay display
 	ImageOverlay* overlay;

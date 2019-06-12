@@ -41,6 +41,7 @@ public slots:
 	void setParams(Params params);
 
 protected:
+	void wheelEvent(QWheelEvent* event) override;
 	void paintEvent(QPaintEvent* event) override;
 
 private:
@@ -51,6 +52,7 @@ private:
 	QRect m_dispRect;		// Display rectangle
 	double m_rotation;		// Rotation in degrees
 	double m_shear;			// Shear amount
+	double m_scale;			// Scale amount
 	Params m_params;		// Grammar parameters
 };
 

@@ -168,25 +168,18 @@ void App::init() {
 	y2Spin->setValue(0);
 	dispLayout->addRow("Y2", y2Spin);
 	// Rotate
-	rotateSlider = new QSlider(Qt::Horizontal, this);
-	rotateSlider->setRange(-100, 100);
-	rotateSlider->setValue(0);
-	QToolButton* rotateReset = new QToolButton(this);
-	rotateReset->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-	QHBoxLayout* rotateLayout = new QHBoxLayout;
-	rotateLayout->addWidget(rotateSlider);
-	rotateLayout->addWidget(rotateReset);
-	dispLayout->addRow("Rotate", rotateLayout);
+	rotateSpin = new QDoubleSpinBox(this);
+	rotateSpin->setRange(-90.0, 90.0);
+	rotateSpin->setValue(0.0);
+	rotateSpin->setSingleStep(0.5);
+	dispLayout->addRow("Rotate", rotateSpin);
 	// Shear
-	shearSlider = new QSlider(Qt::Horizontal, this);
-	shearSlider->setRange(-100, 100);
-	shearSlider->setValue(0);
-	QToolButton* shearReset = new QToolButton(this);
-	shearReset->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-	QHBoxLayout* shearLayout = new QHBoxLayout;
-	shearLayout->addWidget(shearSlider);
-	shearLayout->addWidget(shearReset);
-	dispLayout->addRow("Shear", shearLayout);
+	shearSpin = new QDoubleSpinBox(this);
+	shearSpin->setRange(-1.5, 1.5);
+	shearSpin->setValue(0.0);
+	shearSpin->setSingleStep(0.01);
+	shearSpin->setDecimals(3);
+	dispLayout->addRow("Shear", shearSpin);
 
 	ctrlLayout->addStretch();
 
@@ -260,7 +253,7 @@ void App::init() {
 		int y1 = qMin(y1Spin->value(), y2Spin->value());
 		int x2 = qMax(x1Spin->value(), x2Spin->value());
 		int y2 = qMax(y1Spin->value(), y2Spin->value());
-		QRect dispRect(QPoint(x1, y1), QPoint(x2 - 1, y2 - 1));
+		QRect dispRect(QPoint(x1, y1), QPoint(x2, y2));
 		overlay->setDispRect(dispRect);
 	};
 	connect(x1Spin, qOverload<int>(&QSpinBox::valueChanged), updateDispRect);
@@ -268,14 +261,10 @@ void App::init() {
 	connect(x2Spin, qOverload<int>(&QSpinBox::valueChanged), updateDispRect);
 	connect(y2Spin, qOverload<int>(&QSpinBox::valueChanged), updateDispRect);
 
-	connect(rotateSlider, &QSlider::valueChanged, [=](int value) {
-		overlay->setRotation(value / 100.0 * 45.0);
-	});
-	connect(rotateReset, &QToolButton::clicked, [=]() { rotateSlider->setValue(0); });
-	connect(shearSlider, &QSlider::valueChanged, [=](int value) {
-		overlay->setShear(value / 100.0 * 0.5);
-	});
-	connect(shearReset, &QToolButton::clicked, [=]() { shearSlider->setValue(0); });
+	connect(rotateSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+		overlay, &ImageOverlay::setRotation);
+	connect(shearSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+		overlay, &ImageOverlay::setShear);
 }
 
 void App::clear() {
@@ -305,8 +294,8 @@ void App::clear() {
 	x2Spin->setValue(0);
 	y2Spin->setValue(0);
 
-	rotateSlider->setValue(0);
-	shearSlider->setValue(0);
+	rotateSpin->setValue(0.0);
+	shearSpin->setValue(0.0);
 
 	overlay->clear();
 }
@@ -453,8 +442,8 @@ void App::saveFacade() {
 	truthJson["disp"]["y1"] = y1Spin->value();
 	truthJson["disp"]["x2"] = x2Spin->value();
 	truthJson["disp"]["y2"] = y2Spin->value();
-	truthJson["disp"]["rotate"] = rotateSlider->value();
-	truthJson["disp"]["shear"] = shearSlider->value();
+	truthJson["disp"]["rotate"] = rotateSpin->value();
+	truthJson["disp"]["shear"] = shearSpin->value();
 
 	// Write params relative to chip-size
 	double rect_width_px = qAbs(x2Spin->value() - x1Spin->value()) + 1;
@@ -551,8 +540,8 @@ void App::loadFacade() {
 	x2Spin->setValue(rect.width() - 1);
 	y2Spin->setValue(rect.height() - 1);
 
-	rotateSlider->setValue(0);
-	shearSlider->setValue(0);
+	rotateSpin->setValue(0.0);
+	shearSpin->setValue(0.0);
 
 	// Load ground truth data if it exists
 	fs::path truthPath = facadeInfo[facadeIdx].truthPath;
@@ -574,8 +563,8 @@ void App::loadFacade() {
 	y1Spin->setValue(truthJson["disp"]["y1"]);
 	x2Spin->setValue(truthJson["disp"]["x2"]);
 	y2Spin->setValue(truthJson["disp"]["y2"]);
-	rotateSlider->setValue(truthJson["disp"]["rotate"]);
-	shearSlider->setValue(truthJson["disp"]["shear"]);
+	rotateSpin->setValue(truthJson["disp"]["rotate"]);
+	shearSpin->setValue(truthJson["disp"]["shear"]);
 }
 
 // Update the grammar label with the current grammar

@@ -1,5 +1,6 @@
 #include "imageoverlay.hpp"
 #include <QPainter>
+#include <QWheelEvent>
 
 ImageOverlay::ImageOverlay(QWidget* parent) : QWidget(parent) {
 	setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::MinimumExpanding);
@@ -8,6 +9,7 @@ ImageOverlay::ImageOverlay(QWidget* parent) : QWidget(parent) {
 	m_brightness = 128;
 	m_rotation = 0.0;
 	m_shear = 0.0;
+	m_scale = 2.0;
 }
 
 QSize ImageOverlay::minimumSizeHint() const {
@@ -65,6 +67,12 @@ void ImageOverlay::openImage(QString imagename) {
 	update();
 }
 
+// Scale the display when scrolling
+void ImageOverlay::wheelEvent(QWheelEvent* event) {
+	m_scale = qMax(1.0, m_scale + (double)event->angleDelta().y() / (8 * 15 * 10));
+	update();
+}
+
 void ImageOverlay::paintEvent(QPaintEvent* event) {
 	// Draw nothing if we don't have a valid pixmap
 	if (pixmap.isNull()) return;
@@ -72,10 +80,11 @@ void ImageOverlay::paintEvent(QPaintEvent* event) {
 	QPainter painter(this);
 	painter.setRenderHint(QPainter::Antialiasing);
 
+	// Scale
+	painter.translate(width() / 2.0, height() / 2.0);
+	painter.scale(m_scale, m_scale);
 	// Set origin to image top-left
-	painter.translate(
-		(width() - pixmap.width()) / 2,
-		(height() - pixmap.height()) / 2);
+	painter.translate(-pixmap.width() / 2.0, -pixmap.height() / 2.0);
 
 	painter.drawPixmap(0, 0, pixmap);
 
