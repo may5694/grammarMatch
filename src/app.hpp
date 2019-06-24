@@ -24,8 +24,10 @@ struct FacadeInfo {
 	fs::path imagePath;		// Path to image
 	bool valid;				// Whether grammar is valid
 	int skipIdx;			// Index of valid-only facades
-	double size_x;			// Size of full facade in meters
+	double size_x;			// Size of facade crop in meters
 	double size_y;
+	double crop_px;			// Size of crop in pixels
+	double crop_py;
 	double chip_size_x;		// Size of DN-crop in meters (from metadata)
 	double chip_size_y;
 };
@@ -49,6 +51,7 @@ private:
 	QLineEdit* dirLE;
 	QToolButton* dirBtn;
 	QLabel* indexLbl;
+	QLabel* pathLbl;
 	QPushButton* prevBtn;
 	QPushButton* nextBtn;
 	QPushButton* saveBtn;

@@ -59,6 +59,9 @@ void App::init() {
 	indexLbl = new QLabel("0 / 0", this);
 	indexLbl->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
 	ctrlLayout->addWidget(indexLbl);
+	// Path to facade
+	pathLbl = new QLabel(this);
+	ctrlLayout->addWidget(pathLbl);
 	// Prev and next images
 	QGridLayout* prevNextLayout = new QGridLayout;
 	ctrlLayout->addLayout(prevNextLayout);
@@ -272,6 +275,7 @@ void App::clear() {
 	facadeInfo.clear();
 	facadeIdx = 0;
 	skipTotal = 0;
+	pathLbl->setText("");
 
 	updateIndexLabel();
 
@@ -364,6 +368,8 @@ void App::readDir(QString path) {
 				finfo.skipIdx = skipIdx;
 				finfo.size_x = metaJson["size"][0];
 				finfo.size_y = metaJson["size"][1];
+				finfo.crop_px = metaJson["crop"][2];
+				finfo.crop_py = metaJson["crop"][3];
 				if (valid) {
 					finfo.chip_size_x = metaJson["chip_size"][0];
 					finfo.chip_size_y = metaJson["chip_size"][1];
@@ -448,8 +454,8 @@ void App::saveFacade() {
 	// Write params relative to chip-size
 	double rect_width_px = qAbs(x2Spin->value() - x1Spin->value()) + 1;
 	double rect_height_px = qAbs(y2Spin->value() - y1Spin->value()) + 1;
-	double image_width_px = overlay->imageRect().width();
-	double image_height_px = overlay->imageRect().height();
+	double image_width_px = facadeInfo[facadeIdx].crop_px;
+	double image_height_px = facadeInfo[facadeIdx].crop_py;
 	double image_width_m = facadeInfo[facadeIdx].size_x;
 	double image_height_m = facadeInfo[facadeIdx].size_y;
 	double chip_width_m = facadeInfo[facadeIdx].chip_size_x;
@@ -519,6 +525,15 @@ void App::loadFacade() {
 
 	overlay->openImage(imagename);
 	QRect rect = overlay->imageRect();
+
+	// Get path relative to the top path
+	fs::path metaPath = facadeInfo[facadeIdx].metaPath;
+	fs::path relPath;
+	auto metaIt = metaPath.begin();
+	for (auto topIt = topDir.begin(); topIt != topDir.end(); ++metaIt, ++topIt);
+	for (; metaIt != metaPath.end(); ++metaIt)
+		relPath /= *metaIt;
+	pathLbl->setText(QString::fromStdString(relPath.string()));
 
 	// Reset grammar params
 	rowsSpin->setValue(0);
