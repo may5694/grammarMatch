@@ -35,7 +35,7 @@ struct FacadeInfo {
 class App : public QWidget {
 	Q_OBJECT
 public:
-	App(QWidget* parent = NULL);
+	App(QString startDir = QString(), QWidget* parent = NULL);
 
 protected:
 	void keyReleaseEvent(QKeyEvent* e);

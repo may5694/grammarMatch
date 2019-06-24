@@ -16,8 +16,12 @@
 
 using json = nlohmann::json;
 
-App::App(QWidget* parent) : QWidget(parent) {
+App::App(QString startDir, QWidget* parent) : QWidget(parent) {
 	init();
+	if (!startDir.isNull()) {
+		dirLE->setText(startDir);
+		readDir(startDir);
+	}
 }
 
 void App::keyReleaseEvent(QKeyEvent* e) {
